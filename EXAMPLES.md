@@ -2,6 +2,38 @@
 
 This document provides examples for using the `auth0-api-python` package to validate Auth0 tokens in your API.
 
+## On Behalf Of Token Exchange
+
+Use `get_token_on_behalf_of()` when your API receives an Auth0 access token for itself and needs
+to exchange it for another Auth0 access token targeting a downstream API while preserving the same
+user identity.
+
+```python
+import asyncio
+from auth0_api_python import ApiClient, ApiClientOptions
+
+async def exchange_on_behalf_of():
+    api_client = ApiClient(ApiClientOptions(
+        domain="your-tenant.auth0.com",
+        audience="https://mcp-server.example.com",
+        client_id="<AUTH0_CLIENT_ID>",
+        client_secret="<AUTH0_CLIENT_SECRET>"
+    ))
+
+    result = await api_client.get_token_on_behalf_of(
+        access_token="incoming-auth0-access-token",
+        audience="https://calendar-api.example.com",
+        scope="calendar:read calendar:write"
+    )
+
+    return result
+
+asyncio.run(exchange_on_behalf_of())
+```
+
+In the current implementation, `get_token_on_behalf_of()` forwards the incoming access token as
+the RFC 8693 `subject_token` and relies on Auth0 to handle any DPoP-specific behavior for that token.
+
 ## Bearer Authentication
 
 Bearer authentication is the standard OAuth 2.0 token authentication method.

@@ -2779,6 +2779,159 @@ async def test_get_token_by_exchange_profile_custom_timeout_honored(httpx_mock: 
     assert err.value.status_code == 504
 
 
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_missing_client_credentials():
+    """Test that OBO requires confidential client credentials."""
+    api_client = ApiClient(ApiClientOptions(
+        domain="auth0.local",
+        audience="my-audience",
+    ))
+
+    with pytest.raises(GetTokenByExchangeProfileError) as err:
+        await api_client.get_token_on_behalf_of(
+            access_token="token",
+            audience="https://api.backend.com"
+        )
+
+    assert "client credentials are required" in str(err.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_missing_audience(api_client_confidential):
+    """Test that OBO requires an explicit downstream audience."""
+    with pytest.raises(MissingRequiredArgumentError):
+        await api_client_confidential.get_token_on_behalf_of(
+            access_token="token",
+            audience=""
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_success(mock_discovery, api_client_confidential, httpx_mock):
+    """Test successful OBO exchange with fixed access-token types."""
+    httpx_mock.add_response(
+        method="POST",
+        url=TOKEN_ENDPOINT,
+        json={
+            "access_token": "obo-access-token",
+            "expires_in": 3600,
+            "scope": "read:data write:data",
+            "token_type": "Bearer",
+            "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+        }
+    )
+
+    result = await api_client_confidential.get_token_on_behalf_of(
+        access_token="incoming-access-token",
+        audience="https://api.backend.com",
+        scope="read:data write:data"
+    )
+
+    assert result["access_token"] == "obo-access-token"
+    assert result["expires_in"] == 3600
+    assert isinstance(result["expires_at"], int)
+    assert result["scope"] == "read:data write:data"
+    assert result["token_type"] == "Bearer"
+    assert result["issued_token_type"] == "urn:ietf:params:oauth:token-type:access_token"
+
+    assert_form_post(
+        httpx_mock,
+        expect_fields={
+            "grant_type": ["urn:ietf:params:oauth:grant-type:token-exchange"],
+            "subject_token": ["incoming-access-token"],
+            "subject_token_type": ["urn:ietf:params:oauth:token-type:access_token"],
+            "requested_token_type": ["urn:ietf:params:oauth:token-type:access_token"],
+            "audience": ["https://api.backend.com"],
+            "scope": ["read:data write:data"],
+        },
+        forbid_fields=["client_id", "client_secret"],
+        expect_basic_auth=("cid", "csecret")
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_without_scope(mock_discovery, api_client_confidential, httpx_mock):
+    """Test OBO exchange omits scope when not provided."""
+    httpx_mock.add_response(
+        method="POST",
+        url=TOKEN_ENDPOINT,
+        json=token_success(
+            access_token="obo-access-token",
+            issued_token_type="urn:ietf:params:oauth:token-type:access_token",
+            token_type="Bearer",
+        )
+    )
+
+    result = await api_client_confidential.get_token_on_behalf_of(
+        access_token="incoming-access-token",
+        audience="https://api.backend.com",
+    )
+
+    assert result["access_token"] == "obo-access-token"
+    assert "scope" not in last_form(httpx_mock)
+
+
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_does_not_expose_id_or_refresh_token(
+    mock_discovery, api_client_confidential, httpx_mock
+):
+    """Test OBO result only exposes access-token-oriented fields."""
+    httpx_mock.add_response(
+        method="POST",
+        url=TOKEN_ENDPOINT,
+        json={
+            "access_token": "obo-access-token",
+            "expires_in": 3600,
+            "token_type": "Bearer",
+            "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+            "id_token": "id-token",
+            "refresh_token": "refresh-token",
+        }
+    )
+
+    result = await api_client_confidential.get_token_on_behalf_of(
+        access_token="incoming-access-token",
+        audience="https://api.backend.com",
+    )
+
+    assert result["access_token"] == "obo-access-token"
+    assert "id_token" not in result
+    assert "refresh_token" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_api_error(mock_discovery, api_client_confidential, httpx_mock):
+    """Test that OBO reuses the existing exchange error semantics."""
+    httpx_mock.add_response(
+        method="POST",
+        url=TOKEN_ENDPOINT,
+        status_code=400,
+        json={
+            "error": "invalid_target",
+            "error_description": "The target API is not allowed"
+        }
+    )
+
+    with pytest.raises(ApiError) as err:
+        await api_client_confidential.get_token_on_behalf_of(
+            access_token="incoming-access-token",
+            audience="https://api.backend.com",
+        )
+
+    assert err.value.code == "invalid_target"
+    assert err.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_token_on_behalf_of_empty_access_token(api_client_confidential):
+    """Test that OBO validates the incoming access token via the shared exchange path."""
+    with pytest.raises(MissingRequiredArgumentError):
+        await api_client_confidential.get_token_on_behalf_of(
+            access_token="",
+            audience="https://api.backend.com",
+        )
+
+
 # ===== MCD (Multi-Custom Domain) Tests =====
 
 @pytest.mark.asyncio
@@ -4134,5 +4287,4 @@ async def test_mcd_verify_request_with_resolver_context(httpx_mock):
     assert ctx["request_headers"]["authorization"] == f"Bearer {token}"
     assert ctx["request_headers"]["x-custom-header"] == "test-value"
     assert ctx["unverified_iss"] == "https://tenant1.auth0.com/"
-
 

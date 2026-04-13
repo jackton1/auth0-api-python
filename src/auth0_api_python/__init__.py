@@ -14,7 +14,7 @@ from .errors import (
     DomainsResolverError,
     GetTokenByExchangeProfileError,
 )
-from .types import DomainsResolver, DomainsResolverContext
+from .types import DomainsResolver, DomainsResolverContext, OnBehalfOfTokenResult
 
 __all__ = [
     "ApiClient",
@@ -27,4 +27,5 @@ __all__ = [
     "DomainsResolverError",
     "GetTokenByExchangeProfileError",
     "InMemoryCache",
+    "OnBehalfOfTokenResult",
 ]

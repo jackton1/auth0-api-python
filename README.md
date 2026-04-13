@@ -212,6 +212,24 @@ except ApiError as e:
 
 More info: https://auth0.com/docs/authenticate/custom-token-exchange
 
+#### On Behalf Of Token Exchange
+
+Use `get_token_on_behalf_of()` when your API receives an Auth0 access token for itself and needs
+to exchange it for another Auth0 access token targeting a downstream API while preserving the
+same user identity.
+
+```python
+result = await api_client.get_token_on_behalf_of(
+    access_token=incoming_access_token,
+    audience="https://calendar-api.example.com",
+    scope="calendar:read calendar:write"
+)
+```
+
+The OBO wrapper reuses the existing RFC 8693 exchange support and fixes both token-type parameters
+to Auth0 access-token exchange. In the current implementation, the SDK forwards the incoming access
+token as the `subject_token` and relies on Auth0 to handle any DPoP-specific behavior for that token.
+
 #### Requiring Additional Claims
 
 If your application demands extra claims, specify them with `required_claims`:
