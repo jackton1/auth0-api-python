@@ -214,21 +214,41 @@ More info: https://auth0.com/docs/authenticate/custom-token-exchange
 
 #### On Behalf Of Token Exchange
 
-Use `get_token_on_behalf_of()` when your API receives an Auth0 access token for itself and needs
-to exchange it for another Auth0 access token targeting a downstream API while preserving the
-same user identity.
+Use `get_token_on_behalf_of()` when your API receives an `Auth0` access token for itself and needs
+to exchange it for another `Auth0` access token targeting a downstream API while preserving the
+same user identity. This is especially useful for `MCP` servers and other intermediary APIs that
+need to call downstream APIs on behalf of the user.
+
+The following example verifies the incoming access token for your API, exchanges it for a token for the downstream API, and then calls the downstream API with the exchanged token.
 
 ```python
-result = await api_client.get_token_on_behalf_of(
-    access_token=incoming_access_token,
-    audience="https://calendar-api.example.com",
-    scope="calendar:read calendar:write"
-)
+import httpx
+
+async def handle_calendar_request(incoming_access_token: str):
+    await api_client.verify_access_token(access_token=incoming_access_token)
+
+    result = await api_client.get_token_on_behalf_of(
+        access_token=incoming_access_token,
+        audience="https://calendar-api.example.com",
+        scope="calendar:read calendar:write"
+    )
+
+    async with httpx.AsyncClient() as client:
+        downstream_response = await client.get(
+            "https://calendar-api.example.com/events",
+            headers={"Authorization": f"Bearer {result.access_token}"}
+        )
+
+    downstream_response.raise_for_status()
+
+    return downstream_response.json()
 ```
 
 The OBO wrapper reuses the existing RFC 8693 exchange support and fixes both token-type parameters
 to Auth0 access-token exchange. In the current implementation, the SDK forwards the incoming access
 token as the `subject_token` and relies on Auth0 to handle any DPoP-specific behavior for that token.
+The OBO result only includes access-token-oriented fields. It does not expose `id_token` or
+`refresh_token`.
 
 #### Requiring Additional Claims
 

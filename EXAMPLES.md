@@ -4,12 +4,17 @@ This document provides examples for using the `auth0-api-python` package to vali
 
 ## On Behalf Of Token Exchange
 
-Use `get_token_on_behalf_of()` when your API receives an Auth0 access token for itself and needs
-to exchange it for another Auth0 access token targeting a downstream API while preserving the same
-user identity.
+Use `get_token_on_behalf_of()` when your API receives an `Auth0` access token for itself and needs
+to exchange it for another `Auth0` access token targeting a downstream API while preserving the same
+user identity. This is especially useful for `MCP` servers and other intermediary APIs that need to
+call downstream APIs on behalf of the user.
+
+The following example verifies the incoming access token for your API, exchanges it for a token for the downstream API, and then calls the downstream API with the exchanged token.
 
 ```python
 import asyncio
+import httpx
+
 from auth0_api_python import ApiClient, ApiClientOptions
 
 async def exchange_on_behalf_of():
@@ -20,19 +25,40 @@ async def exchange_on_behalf_of():
         client_secret="<AUTH0_CLIENT_SECRET>"
     ))
 
+    incoming_access_token = "incoming-auth0-access-token"
+
+    claims = await api_client.verify_access_token(access_token=incoming_access_token)
+
     result = await api_client.get_token_on_behalf_of(
-        access_token="incoming-auth0-access-token",
+        access_token=incoming_access_token,
         audience="https://calendar-api.example.com",
         scope="calendar:read calendar:write"
     )
 
-    return result
+    async with httpx.AsyncClient() as client:
+        downstream_response = await client.get(
+            "https://calendar-api.example.com/events",
+            headers={"Authorization": f"Bearer {result.access_token}"}
+        )
+
+    downstream_response.raise_for_status()
+
+    return {
+        "user": claims["sub"],
+        "data": downstream_response.json(),
+    }
 
 asyncio.run(exchange_on_behalf_of())
 ```
 
+> [!TIP] Production notes:
+> - Pass the raw access token to `get_token_on_behalf_of()`. Do not pass the full `Authorization` header or include the `Bearer ` prefix.
+> - Verify the incoming token for your API before exchanging it so your application rejects invalid or mis-targeted tokens early.
+> - The downstream `audience` must match an API identifier configured in your Auth0 tenant.
+> - `get_token_on_behalf_of()` only returns access-token-oriented fields. It does not expose `id_token` or `refresh_token`.
+
 In the current implementation, `get_token_on_behalf_of()` forwards the incoming access token as
-the RFC 8693 `subject_token` and relies on Auth0 to handle any DPoP-specific behavior for that token.
+the [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693#section-2.1) `subject_token` and relies on Auth0 to handle any DPoP-specific behavior for that token.
 
 ## Bearer Authentication
 
